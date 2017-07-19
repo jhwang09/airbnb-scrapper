@@ -1,28 +1,37 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"regexp"
 	"time"
 
-	selenium "sourcegraph.com/sourcegraph/go-selenium"
+	"github.com/tebeka/selenium"
 )
 
 var idRegex *regexp.Regexp
 var priceRegex *regexp.Regexp
 var bedRegex *regexp.Regexp
 
+// this is the container contains info of a listing
 const infoContainerSelector = ".infoContainer_v72lrv"
+
+// this is the container contains link to the listing, which has unique identifier
 const linkContainerSelector = ".linkContainer_15ns6vh"
 
 // available paramters
-const searchTerms = "jersey city"
-const numOfPages = 2
+var searchTerms string
+var numOfPages int
 
 func init() {
 	idRegex = regexp.MustCompile(`/[0-9]+`)
 	priceRegex = regexp.MustCompile(`\$[0-9]+`)
 	bedRegex = regexp.MustCompile(`\d beds?`)
+
+	flag.StringVar(&searchTerms, "searchTerms", "Brooklyn, NY", "Location you wish to search for listings")
+	flag.IntVar(&numOfPages, "pages", 1, "Number of pages you wish to search for")
+
+	flag.Parse()
 }
 
 func main() {
@@ -35,7 +44,7 @@ func main() {
 	}
 	defer webDriver.Quit()
 
-	err = webDriver.Get("https://www.airbnb.com/s/" + searchTerms + "/homes")
+	err = webDriver.Get(fmt.Sprintf("https://www.airbnb.com/s/%s/homes", searchTerms))
 	if err != nil {
 		fmt.Printf("Failed to load page: %s\n", err)
 		return
@@ -61,10 +70,10 @@ func main() {
 
 			// a hack to avoid findElements before the page is loaded, otherwise
 			// no results because the page has not loaded completely
-			<-time.After(3 * time.Second)
+			<-time.After(5 * time.Second)
 		}
 
-		elems, err := findElements(webDriver)
+		elems, err := webDriver.FindElements(selenium.ByCSSSelector, infoContainerSelector)
 		if err != nil {
 			fmt.Printf("Failed to find element: %s\n", err)
 			return
@@ -74,20 +83,14 @@ func main() {
 		results = append(results, pageResults...)
 	}
 
-	fmt.Println(fmt.Sprintf("Total: %d", len(results)))
+	fmt.Println(fmt.Sprintf("Total Found: %d", len(results)))
 	for _, result := range results {
 		fmt.Println(result)
 	}
 }
 
-func findElements(webDriver selenium.WebDriver) (elements []selenium.WebElement, err error) {
-	// ".infoContainer_v72lrv" is the container contains info of a listing
-	elements, err = webDriver.FindElements(selenium.ByCSSSelector, infoContainerSelector)
-	return
-}
-
 func getOffsetPageURL(firstURLString string, offset int) string {
-	return firstURLString + "&section_offset=" + fmt.Sprintf("%d", offset)
+	return fmt.Sprintf("%s&section_offset=%d", firstURLString, offset)
 }
 
 func processElements(elements []selenium.WebElement) (results []Result) {
@@ -95,13 +98,13 @@ func processElements(elements []selenium.WebElement) (results []Result) {
 		linkElement, err := element.FindElement(selenium.ByCSSSelector, linkContainerSelector)
 		if err != nil {
 			fmt.Printf("Failed to find link element: %s\n", err)
-			return
+			continue
 		}
 
 		value, err := linkElement.GetAttribute("href")
 		if err != nil {
 			fmt.Printf("Failed to get attribute: %s\n", err)
-			return
+			continue
 		}
 
 		var result Result
@@ -114,13 +117,15 @@ func processElements(elements []selenium.WebElement) (results []Result) {
 			results = append(results, result)
 		} else {
 			fmt.Printf("Failed to get text of element: %s\n", err)
-			return
+			continue
 		}
 	}
 
 	return
 }
 
+// type
+////
 type Result struct {
 	ID    string
 	Price string
